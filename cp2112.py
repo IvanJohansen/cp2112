@@ -14,7 +14,10 @@ ErrorStatus = {
     0x04: "Write incomplete",
     0x05: "Succeeded after Status 2 retries",
 }
-    
+
+VENDOR_ID = 0x10C4
+PRODUCT_ID = 0xEA90
+
 class CP2112:
     """Class for interfacing with the CP2112 USB-to-I2C device through the HID USB driver.
     """
@@ -24,9 +27,11 @@ class CP2112:
             clock: I2C clock in Hz.
             serial_number: Optional serial number as a text string.
             retry: Number of retry attempts. 0 means infinite.
+        Throws:
+            OSError: When open fails.
         """
         self.handle = hid.device()
-        self.handle.open(0x10C4, 0xEA90, serial_number)
+        self.handle.open(VENDOR_ID, PRODUCT_ID, serial_number)
         # Set SMBus Configuration
         self.handle.send_feature_report(
             [0x06, #Set SMBus Configuration
@@ -170,7 +175,7 @@ class CP2112:
             if response[0] == id:
                 return response
 
-    def write(self, address, tx_data):
+    def write_i2c(self, address, tx_data):
         """Write to the I2C bus.
         Args:
             address: 7-bit I2C slave address.
@@ -183,7 +188,7 @@ class CP2112:
         self.handle.write(data)
         self._wait_transfer_finish()
 
-    def read(self, address, rx_size):
+    def read_i2c(self, address, rx_size):
         """Read from the I2C bus.
         Args:
             address: 7-bit I2C slave address.
@@ -202,7 +207,7 @@ class CP2112:
         assert response[2] == rx_size
         return bytes(response[3 : rx_size + 3])
 
-    def write_read(self, address, tx_data, rx_size):
+    def write_read_i2c(self, address, tx_data, rx_size):
         """Combined write and read on the I2C bus.
         Args:
             address: 7-bit I2C slave address.
@@ -222,21 +227,27 @@ class CP2112:
         assert response[2] == rx_size
         return bytes(response[3 : rx_size + 3])
 
+def enumerate():
+    return [d["serial_number"] for d in hid.enumerate(VENDOR_ID, PRODUCT_ID)]
 
 if __name__ == '__main__':
     import time
-    device = CP2112()
-    print("Manufacturer: %s" % device.get_manufacturer())
-    print("Product: %s" % device.get_product())
-    print("Serial No: %s" % device.get_serial_number())
-    print("Version: %u" % device.get_version()[1])
-    device.set_pin_config(0, True, True)
-    device.set_pin_config(1, True, True)
-    device.set_pin(0, True)
-    device.set_pin(1, False)
-    for i in range(10):
-        time.sleep(0.2)
-        device.set_pin(0, not device.get_pin(0))
-        device.set_pin(1, not device.get_pin(1))
-    device.set_pin_config(0, False, False)
-    device.set_pin_config(1, False, False)
+    for serial_number in enumerate():
+        print("Serial No: %s" % serial_number)
+        try:
+            device = CP2112(serial_number=serial_number)
+            print("    Manufacturer: %s" % device.get_manufacturer())
+            print("    Product: %s" % device.get_product())
+            print("    Version: %u" % device.get_version()[1])
+            device.set_pin_config(0, True, True)
+            device.set_pin_config(1, True, True)
+            device.set_pin(0, True)
+            device.set_pin(1, False)
+            for i in range(10):
+                time.sleep(0.2)
+                device.set_pin(0, not device.get_pin(0))
+                device.set_pin(1, not device.get_pin(1))
+            device.set_pin_config(0, False, False)
+            device.set_pin_config(1, False, False)
+        except OSError as e:
+            print("    " + str(e))
